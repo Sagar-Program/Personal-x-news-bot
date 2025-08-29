@@ -134,9 +134,9 @@ def rewrite_title(title, category: str) -> str:
         title = " ".join([str(x) for x in title])
     t = (title or "").strip()
 
-    # Drop trailing " - Source" if present
+    # Keep only the part before the first " - "
     if " - " in t:
-        t = t.split(" - ").strip()
+        t = t.split(" - ")[0].strip()
 
     # Remove hype prefixes
     replacements = {
@@ -159,7 +159,7 @@ def rewrite_title(title, category: str) -> str:
 
     # Capitalize start for formality
     if t:
-        t = t.upper() + t[1:]
+        t = t[0].upper() + t[1:]
     return t
 
 def build_post(item, category):
