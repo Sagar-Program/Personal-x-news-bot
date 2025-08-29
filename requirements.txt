@@ -1,0 +1,8 @@
+requests
+
+PyYAML
+
+feedparser
+
+requests-oauthlib
+
