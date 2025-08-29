@@ -9,18 +9,18 @@ import requests
 import yaml
 import feedparser
 
-# Load topics
+# Load topics from topics.yaml (edit that file to change categories/keywords)
 with open("topics.yaml", "r", encoding="utf-8") as f:
     TOPICS = yaml.safe_load(f)
 
-# Categories: use keys from topics.yaml if present, else defaults
+# Categories come from topics.yaml keys if present; otherwise use defaults
 CATEGORIES = list(TOPICS.keys()) if isinstance(TOPICS, dict) and TOPICS else [
     "politics", "currency", "tech", "ai", "current_affairs",
     "hollywood", "bollywood", "formula_one", "social_challenge",
     "world_tension", "world_affairs", "new_cars", "auto_tech"
 ]
 
-# RSS and news feeds for each category
+# RSS and news feeds per category (no auth required; always respect site terms)
 FEEDS = {
     "politics": [
         "https://news.google.com/rss/search?q=politics&hl=en-IN&gl=IN&ceid=IN:en",
@@ -91,11 +91,9 @@ def sanitize(text: str) -> str:
     return " ".join((text or "").split())
 
 def pick_category() -> str:
-    # Rotate by hour to balance topics deterministically
+    # Rotate deterministically by hour to balance topics
     epoch_hour = int(time.time() // 3600)
-    if not CATEGORIES:
-        return "current_affairs"
-    return CATEGORIES[epoch_hour % len(CATEGORIES)]
+    return CATEGORIES[epoch_hour % len(CATEGORIES)] if CATEGORIES else "current_affairs"
 
 def gather_items(category: str):
     items = []
@@ -106,7 +104,7 @@ def gather_items(category: str):
             for e in feed.entries[:10]:
                 title = sanitize(getattr(e, "title", "") or "")
                 link = sanitize(getattr(e, "link", "") or "")
-                if title and link:
+                if title:
                     items.append({"title": title, "link": link, "source": src})
         except Exception:
             continue
@@ -120,32 +118,74 @@ def gather_items(category: str):
             unique.append(it)
     return unique
 
-def build_post(item, category):
-    hashtags = {
-        "politics": "#Politics",
-        "currency": "#Currency",
-        "tech": "#Tech",
-        "ai": "#AI",
-        "current_affairs": "#News",
-        "hollywood": "#Hollywood",
-        "bollywood": "#Bollywood",
-        "formula_one": "#F1",
-        "social_challenge": "#Trending",
-        "world_tension": "#World",
-        "world_affairs": "#World",
-        "new_cars": "#Cars",
-        "auto_tech": "#AutoTech",
-    }
-    tag = hashtags.get(category, "#News")
-    base = f"{item['title']} ({item['source']}) {tag}"
-    link = item["link"]
-    if len(base) + 1 + len(link) <= MAX_TWEET:
-        return f"{base} {link}"
-    room = MAX_TWEET - len(f" ({item['source']}) {tag} {link}") - 3
-    truncated_title = (item["title"][:room] + "...") if room > 0 else item["title"][:MAX_TWEET-1]
-    return f"{truncated_title} ({item['source']}) {tag} {link}"
+# --------- Minimal, formal, no-link formatting ---------
 
-# OAuth 1.0a signing for POST /2/tweets in user context
+def rewrite_title(title: str, category: str) -> str:
+    """Rewrite headline to a concise, formal sentence with no links."""
+    t = (title or "").strip()
+    # Drop trailing " - Source"
+    if " - " in t:
+        t = t.split(" - ").strip()
+    # Remove hype prefixes
+    replacements = {
+        "BREAKING:": "",
+        "BREAKING": "",
+        "Watch:": "",
+        "WATCH:": "",
+        "Report:": "",
+        "REPORT:": "",
+        "Explained:": "",
+        "EXPLAINED:": "",
+        "Live:": "",
+        "LIVE:": "",
+    }
+    for k, v in replacements.items():
+        t = t.replace(k, v).strip()
+    # Remove any accidental URLs
+    t = t.replace("http://", "").replace("https://", "")
+    # Capitalize start for formality
+    if t:
+        t = t.upper() + t[1:]
+    return t
+
+def build_post(item, category):
+    """Return a minimal, formal post with 2–3 hashtags and NO URL."""
+    tags = {
+        "politics": ["#Politics", "#Policy"],
+        "currency": ["#Markets", "#Forex"],
+        "tech": ["#Tech", "#Innovation"],
+        "ai": ["#AI", "#MachineLearning"],
+        "current_affairs": ["#News", "#CurrentAffairs"],
+        "hollywood": ["#Hollywood", "#Entertainment"],
+        "bollywood": ["#Bollywood", "#Entertainment"],
+        "formula_one": ["#F1", "#Motorsport"],
+        "social_challenge": ["#Social", "#Trends"],
+        "world_tension": ["#World", "#Geopolitics"],
+        "world_affairs": ["#World", "#Diplomacy"],
+        "new_cars": ["#Cars", "#Auto"],
+        "auto_tech": ["#AutoTech", "#EVs"],
+    }
+    chosen = tags.get(category, ["#News", "#Update"])
+
+    # Human, minimal, formal: rewrite headline; include no links at all
+    text = rewrite_title(item.get("title", ""), category)
+
+    # Prefer 3 hashtags if space allows, else 2
+    hash_text_2 = " " + " ".join(chosen[:2])
+    hash_text_3 = " " + " ".join(chosen[:3]) if len(chosen) >= 3 else hash_text_2
+
+    if len(text + hash_text_3) <= MAX_TWEET:
+        return text + hash_text_3
+    if len(text + hash_text_2) <= MAX_TWEET:
+        return text + hash_text_2
+
+    # Trim title to fit with 2 hashtags
+    room = MAX_TWEET - len(hash_text_2) - 1
+    trimmed = (text[:room] + "…") if room > 0 else text[:279]
+    return trimmed + hash_text_2
+
+# --------- OAuth 1.0a user-context signing for X API v2 ---------
+
 def percent_encode(s):
     return urllib.parse.quote(str(s), safe="~")
 
@@ -168,6 +208,7 @@ def oauth1_headers(method, url, params, consumer_key, consumer_secret, token, to
     return {"Authorization": auth_header, "Content-Type": "application/json"}
 
 def post_tweet(text):
+    # Using X API v2 manage tweets endpoint with OAuth 1.0a user context
     url = "https://api.x.com/2/tweets"
     ck = os.environ["X_API_KEY"]
     cs = os.environ["X_API_SECRET"]
