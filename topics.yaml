@@ -1,0 +1,25 @@
+politics: ["election", "policy", "parliament", "diplomacy"]
+
+currency: ["USD", "EUR", "INR", "forex", "exchange rate"]
+
+tech: ["startups", "software", "semiconductors", "cloud"]
+
+ai: ["AI", "machine learning", "LLMs", "gen AI"]
+
+current_affairs: ["geopolitics", "economy", "markets", "energy"]
+
+hollywood: ["Hollywood", "movies", "box office", "studios", "streaming"]
+
+bollywood: ["Bollywood", "Hindi cinema", "box office", "trailer", "celebrity"]
+
+formula_one: ["Formula One", "F1", "Grand Prix", "qualifying", "constructors"]
+
+social_challenge: ["social media trend", "challenge", "viral", "internet culture"]
+
+world_tension: ["conflict", "sanctions", "ceasefire", "military escalation"]
+
+world_affairs: ["diplomacy", "UN", "summit", "bilateral talks", "treaty"]
+
+new_cars: ["EV", "hybrid", "concept car", "launch", "autonomous"]
+
+auto_tech: ["ADAS", "battery tech", "charging", "infotainment", "Lidar"]
