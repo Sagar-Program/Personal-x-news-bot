@@ -86,9 +86,10 @@ FEEDS = {
 }
 
 MAX_TWEET = 280
+TARGET_LEN = 220      # aim near 220 chars, but never exceed 280
+MIN_LEN = 160         # avoid too-short posts that look like bare headlines
 
 def sanitize(text) -> str:
-    # Accept str, list, or other; always return a flat string
     if isinstance(text, list):
         text = " ".join([str(x) for x in text])
     elif text is None:
@@ -96,7 +97,6 @@ def sanitize(text) -> str:
     return " ".join(str(text).split())
 
 def pick_category() -> str:
-    # Rotate deterministically by hour to balance topics
     epoch_hour = int(time.time() // 3600)
     return CATEGORIES[epoch_hour % len(CATEGORIES)] if CATEGORIES else "current_affairs"
 
@@ -108,11 +108,9 @@ def gather_items(category: str):
             src = sanitize(getattr(feed.feed, "title", "") or "News")
             for e in feed.entries[:10]:
                 raw_title = getattr(e, "title", "")
-                raw_link = getattr(e, "link", "")
                 title = sanitize(raw_title)
-                link = sanitize(raw_link)
                 if title:
-                    items.append({"title": title, "link": link, "source": src})
+                    items.append({"title": title, "source": src})
         except Exception:
             continue
     # Deduplicate by title hash
@@ -125,78 +123,146 @@ def gather_items(category: str):
             unique.append(it)
     return unique
 
-# --------- Minimal, formal, no-link formatting ---------
+# Tone & style utilities
 
-def rewrite_title(title, category: str) -> str:
-    """Rewrite headline to a concise, formal sentence with no links."""
-    # Coerce to string and normalize
-    if isinstance(title, list):
-        title = " ".join([str(x) for x in title])
+EMOJI_POOL = {
+    "politics": ["🗳️", "📜", "🇮🇳"],
+    "currency": ["💱", "📉", "📈"],
+    "tech": ["💻", "🚀", "🧩"],
+    "ai": ["🤖", "🧠", "⚙️"],
+    "current_affairs": ["🌍", "📰", "🔎"],
+    "hollywood": ["🎬", "🌟", "🍿"],
+    "bollywood": ["🎥", "🌟", "💃"],
+    "formula_one": ["🏁", "🚗", "⏱️"],
+    "social_challenge": ["📲", "🔥", "🎯"],
+    "world_tension": ["🌍", "⚠️", "🕊️"],
+    "world_affairs": ["🌐", "🤝", "📜"],
+    "new_cars": ["🚗", "🔋", "✨"],
+    "auto_tech": ["🔌", "🔋", "🧠"],
+}
+
+HASHTAGS = {
+    "politics": ["#Politics", "#Policy", "#India"],
+    "currency": ["#Markets", "#Forex", "#INR"],
+    "tech": ["#Tech", "#Innovation", "#Startups"],
+    "ai": ["#AI", "#MachineLearning", "#GenAI"],
+    "current_affairs": ["#News", "#CurrentAffairs", "#Breaking"],
+    "hollywood": ["#Hollywood", "#Entertainment", "#BoxOffice"],
+    "bollywood": ["#Bollywood", "#Entertainment", "#Cinema"],
+    "formula_one": ["#F1", "#Motorsport", "#GrandPrix"],
+    "social_challenge": ["#Social", "#Trends", "#InternetCulture"],
+    "world_tension": ["#World", "#Geopolitics", "#Global"],
+    "world_affairs": ["#World", "#Diplomacy", "#Global"],
+    "new_cars": ["#Cars", "#EV", "#Auto"],
+    "auto_tech": ["#AutoTech", "#EVs", "#ADAS"],
+}
+
+MENTIONS = {
+    "formula_one": ["@F1"],
+    "ai": ["@OpenAI"],
+    "tech": [],
+    "currency": [],
+    "politics": [],
+    "current_affairs": [],
+    "world_affairs": [],
+    "world_tension": [],
+    "hollywood": [],
+    "bollywood": [],
+    "new_cars": [],
+    "auto_tech": [],
+    "social_challenge": [],
+}
+
+def rewrite_title(title: str) -> str:
     t = (title or "").strip()
-
-    # Keep only the part before the first " - "
     if " - " in t:
-        t = t.split(" - ")[0].strip()
-
-    # Remove hype prefixes
-    replacements = {
-        "BREAKING:": "",
-        "BREAKING": "",
-        "Watch:": "",
-        "WATCH:": "",
-        "Report:": "",
-        "REPORT:": "",
-        "Explained:": "",
-        "EXPLAINED:": "",
-        "Live:": "",
-        "LIVE:": "",
-    }
-    for k, v in replacements.items():
-        t = t.replace(k, v).strip()
-
-    # Remove any accidental URLs
+        t = t.split(" - ").strip()
+    for k in ["BREAKING:", "BREAKING", "Watch:", "WATCH:", "Report:", "REPORT:", "Explained:", "EXPLAINED:", "Live:", "LIVE:"]:
+        t = t.replace(k, "").strip()
     t = t.replace("http://", "").replace("https://", "")
-
-    # Capitalize start for formality
     if t:
-        t = t[0].upper() + t[1:]
+        t = t.upper() + t[1:]
     return t
 
+def craft_variations(core: str, category: str):
+    # Problem → insight → takeaway with tone variety; 1–2 emojis; 2–3 hashtags; optional mention
+    emoji_choices = EMOJI_POOL.get(category, ["✨"])
+    tags = HASHTAGS.get(category, ["#News", "#Update"])
+    mention_list = MENTIONS.get(category, [])
+    mention = f" {random.choice(mention_list)}" if mention_list and random.random() < 0.35 else ""
+
+    # Choose 1–2 emojis
+    ecount = 1 if random.random() < 0.6 else 2
+    emjs = " ".join(random.sample(emoji_choices, k=min(ecount, len(emoji_choices))))
+    # Choose 2–3 hashtags
+    tcount = 3 if random.random() < 0.5 and len(tags) >= 3 else 2
+    htxt = " " + " ".join(tags[:tcount])
+
+    # Variation templates
+    templates = [
+        # neutral analytical
+        "{emj} {problem} {insight} Takeaway: {takeaway}.{mention} {tags}",
+        # question to invite replies
+        "{emj} {problem} {insight} What’s the smart move here? {mention} {tags}",
+        # light critique
+        "{emj} {problem} {insight} Bold claim—will it deliver? {mention} {tags}",
+        # gentle satire
+        "{emj} {problem} {insight} If only timelines moved as fast as headlines. {mention} {tags}",
+        # helpful tip framing
+        "{emj} {problem} Tip: {takeaway}. {mention} {tags}",
+        # direct prompt
+        "{emj} {problem} {insight} Thoughts? {mention} {tags}",
+    ]
+
+    # Derive problem/insight/takeaway from core in a simple way
+    # core often already contains a full headline; split by punctuation to get clauses
+    clauses = [c.strip() for c in core.replace("—", "-").replace(":", ".").split(".") if c.strip()]
+    problem = clauses if clauses else core
+    insight = clauses[11] if len(clauses) > 1 else "Key update worth tracking"
+    takeaway = clauses[12] if len(clauses) > 2 else "Keep an eye on this"
+
+    candidates = []
+    for tpl in templates:
+        s = tpl.format(
+            emj=emjs,
+            problem=problem,
+            insight=insight,
+            takeaway=takeaway,
+            mention=mention,
+            tags=htxt
+        )
+        # Squeeze spaces
+        s = " ".join(s.split())
+        candidates.append(s)
+
+    return candidates
+
+def choose_best_text(candidates):
+    # Filter for min length and target window, but never exceed 280
+    valid = []
+    for s in candidates:
+        # Emojis and spaces count toward 280; aim near TARGET_LEN [2][1]
+        if len(s) <= MAX_TWEET:
+            valid.append(s)
+    if not valid:
+        return candidates[:MAX_TWEET]
+
+    # Prefer texts between MIN_LEN and 260, closest to TARGET_LEN
+    scored = []
+    for s in valid:
+        length = len(s)
+        too_short_penalty = 0 if length >= MIN_LEN else (MIN_LEN - length)
+        target_penalty = abs(TARGET_LEN - length)
+        score = target_penalty + (2 * too_short_penalty)
+        scored.append((score, s))
+    scored.sort(key=lambda x: x)
+    return scored[11]
+
 def build_post(item, category):
-    """Return a minimal, formal post with 2–3 hashtags and NO URL."""
-    tags = {
-        "politics": ["#Politics", "#Policy"],
-        "currency": ["#Markets", "#Forex"],
-        "tech": ["#Tech", "#Innovation"],
-        "ai": ["#AI", "#MachineLearning"],
-        "current_affairs": ["#News", "#CurrentAffairs"],
-        "hollywood": ["#Hollywood", "#Entertainment"],
-        "bollywood": ["#Bollywood", "#Entertainment"],
-        "formula_one": ["#F1", "#Motorsport"],
-        "social_challenge": ["#Social", "#Trends"],
-        "world_tension": ["#World", "#Geopolitics"],
-        "world_affairs": ["#World", "#Diplomacy"],
-        "new_cars": ["#Cars", "#Auto"],
-        "auto_tech": ["#AutoTech", "#EVs"],
-    }
-    chosen = tags.get(category, ["#News", "#Update"])
-
-    # Human, minimal, formal: rewrite headline; include no links at all
-    text = rewrite_title(item.get("title", ""), category)
-
-    # Prefer 3 hashtags if space allows, else 2
-    hash_text_2 = " " + " ".join(chosen[:2])
-    hash_text_3 = " " + " ".join(chosen[:3]) if len(chosen) >= 3 else hash_text_2
-
-    if len(text + hash_text_3) <= MAX_TWEET:
-        return text + hash_text_3
-    if len(text + hash_text_2) <= MAX_TWEET:
-        return text + hash_text_2
-
-    # Trim title to fit with 2 hashtags
-    room = MAX_TWEET - len(hash_text_2) - 1
-    trimmed = (text[:room] + "…") if room > 0 else text[:279]
-    return trimmed + hash_text_2
+    core = rewrite_title(item.get("title", ""))
+    variants = craft_variations(core, category)
+    text = choose_best_text(variants)
+    return text
 
 # --------- OAuth 1.0a user-context signing for X API v2 ---------
 
@@ -222,7 +288,6 @@ def oauth1_headers(method, url, params, consumer_key, consumer_secret, token, to
     return {"Authorization": auth_header, "Content-Type": "application/json"}
 
 def post_tweet(text):
-    # Using X API v2 manage tweets endpoint with OAuth 1.0a user context
     url = "https://api.x.com/2/tweets"
     ck = os.environ["X_API_KEY"]
     cs = os.environ["X_API_SECRET"]
@@ -240,10 +305,15 @@ def main():
     if not items:
         print("No items found; skipping.")
         return
+    # Prefer a random pick from top entries to stay fresh while varied
     pick_pool = items[:8] if len(items) >= 8 else items
     item = random.choice(pick_pool)
     post = build_post(item, category)
+    print(f"Category: {category}")
     print("Posting:", post)
+    # Safety: ensure we never exceed 280 (emojis/spaces counted) [2][1]
+    if len(post) > MAX_TWEET:
+        post = post[:MAX_TWEET]
     post_tweet(post)
     print("Posted OK")
 
