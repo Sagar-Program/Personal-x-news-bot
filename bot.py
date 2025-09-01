@@ -86,12 +86,13 @@ FEEDS = {
 }
 
 MAX_TWEET = 280
-TARGET_LEN = 220      # aim near 220 chars, but never exceed 280
-MIN_LEN = 160         # avoid too-short posts that look like bare headlines
+TARGET_LEN = 220      # aim near 220 chars
+MIN_LEN = 160         # avoid too-short posts
 
 def sanitize(text) -> str:
+    # Always return a string
     if isinstance(text, list):
-        text = " ".join([str(x) for x in text])
+        text = " ".join(str(x) for x in text)
     elif text is None:
         text = ""
     return " ".join(str(text).split())
@@ -107,8 +108,7 @@ def gather_items(category: str):
             feed = feedparser.parse(url)
             src = sanitize(getattr(feed.feed, "title", "") or "News")
             for e in feed.entries[:10]:
-                raw_title = getattr(e, "title", "")
-                title = sanitize(raw_title)
+                title = sanitize(getattr(e, "title", ""))
                 if title:
                     items.append({"title": title, "source": src})
         except Exception:
@@ -123,7 +123,7 @@ def gather_items(category: str):
             unique.append(it)
     return unique
 
-# Tone & style utilities
+# ---------- Humanized formatting (no links) ----------
 
 EMOJI_POOL = {
     "politics": ["🗳️", "📜", "🇮🇳"],
@@ -160,109 +160,75 @@ HASHTAGS = {
 MENTIONS = {
     "formula_one": ["@F1"],
     "ai": ["@OpenAI"],
-    "tech": [],
-    "currency": [],
-    "politics": [],
-    "current_affairs": [],
-    "world_affairs": [],
-    "world_tension": [],
-    "hollywood": [],
-    "bollywood": [],
-    "new_cars": [],
-    "auto_tech": [],
-    "social_challenge": [],
 }
 
 def rewrite_title(title: str) -> str:
-    t = (title or "").strip()
+    t = sanitize(title)
+    # Keep only the part before the first " - "
     if " - " in t:
-        t = t.split(" - ").strip()
+        t = t.split(" - ")[0].strip()  # FIX: operate on first segment (string), then strip
+    # Remove hype prefixes
     for k in ["BREAKING:", "BREAKING", "Watch:", "WATCH:", "Report:", "REPORT:", "Explained:", "EXPLAINED:", "Live:", "LIVE:"]:
         t = t.replace(k, "").strip()
+    # Remove any accidental URLs
     t = t.replace("http://", "").replace("https://", "")
+    # Capitalize start
     if t:
-        t = t.upper() + t[1:]
+        t = t[0].upper() + t[1:]
     return t
 
 def craft_variations(core: str, category: str):
-    # Problem → insight → takeaway with tone variety; 1–2 emojis; 2–3 hashtags; optional mention
-    emoji_choices = EMOJI_POOL.get(category, ["✨"])
+    emojis = EMOJI_POOL.get(category, ["✨"])
     tags = HASHTAGS.get(category, ["#News", "#Update"])
     mention_list = MENTIONS.get(category, [])
     mention = f" {random.choice(mention_list)}" if mention_list and random.random() < 0.35 else ""
 
-    # Choose 1–2 emojis
+    # 1–2 emojis
     ecount = 1 if random.random() < 0.6 else 2
-    emjs = " ".join(random.sample(emoji_choices, k=min(ecount, len(emoji_choices))))
-    # Choose 2–3 hashtags
+    chosen_emoji = " ".join(random.sample(emojis, k=min(ecount, len(emojis))))
+    # 2–3 hashtags
     tcount = 3 if random.random() < 0.5 and len(tags) >= 3 else 2
     htxt = " " + " ".join(tags[:tcount])
 
-    # Variation templates
+    # Split core into clauses for structure
+    clauses = [c.strip() for c in core.replace("—", "-").replace(":", ".").split(".") if c.strip()]
+    problem = clauses[0] if clauses else core
+    insight = clauses[1] if len(clauses) > 1 else "Key update worth tracking"
+    takeaway = clauses[2] if len(clauses) > 2 else "Keep an eye on this"
+
     templates = [
-        # neutral analytical
-        "{emj} {problem} {insight} Takeaway: {takeaway}.{mention} {tags}",
-        # question to invite replies
-        "{emj} {problem} {insight} What’s the smart move here? {mention} {tags}",
-        # light critique
-        "{emj} {problem} {insight} Bold claim—will it deliver? {mention} {tags}",
-        # gentle satire
-        "{emj} {problem} {insight} If only timelines moved as fast as headlines. {mention} {tags}",
-        # helpful tip framing
-        "{emj} {problem} Tip: {takeaway}. {mention} {tags}",
-        # direct prompt
-        "{emj} {problem} {insight} Thoughts? {mention} {tags}",
+        "{e} {p}. {i}. Takeaway: {t}.{m}{h}",
+        "{e} {p}. {i}. What’s the smart move here?{m}{h}",
+        "{e} {p}. {i}. Bold claim—will it deliver?{m}{h}",
+        "{e} {p}. {i}. If only timelines moved as fast as headlines.{m}{h}",
+        "{e} {p}. Tip: {t}.{m}{h}",
+        "{e} {p}. {i}. Thoughts?{m}{h}",
     ]
 
-    # Derive problem/insight/takeaway from core in a simple way
-    # core often already contains a full headline; split by punctuation to get clauses
-    clauses = [c.strip() for c in core.replace("—", "-").replace(":", ".").split(".") if c.strip()]
-    problem = clauses if clauses else core
-    insight = clauses[11] if len(clauses) > 1 else "Key update worth tracking"
-    takeaway = clauses[12] if len(clauses) > 2 else "Keep an eye on this"
-
-    candidates = []
+    out = []
     for tpl in templates:
-        s = tpl.format(
-            emj=emjs,
-            problem=problem,
-            insight=insight,
-            takeaway=takeaway,
-            mention=mention,
-            tags=htxt
-        )
-        # Squeeze spaces
+        s = tpl.format(e=chosen_emoji, p=problem, i=insight, t=takeaway, m=mention and f" {mention.strip()}" or "", h=f" {htxt.strip()}")
         s = " ".join(s.split())
-        candidates.append(s)
-
-    return candidates
+        out.append(s)
+    return out
 
 def choose_best_text(candidates):
-    # Filter for min length and target window, but never exceed 280
-    valid = []
-    for s in candidates:
-        # Emojis and spaces count toward 280; aim near TARGET_LEN [2][1]
-        if len(s) <= MAX_TWEET:
-            valid.append(s)
+    valid = [s for s in candidates if len(s) <= MAX_TWEET]
     if not valid:
-        return candidates[:MAX_TWEET]
-
-    # Prefer texts between MIN_LEN and 260, closest to TARGET_LEN
+        return candidates[0][:MAX_TWEET]
+    # Prefer near TARGET_LEN, penalize below MIN_LEN
     scored = []
     for s in valid:
-        length = len(s)
-        too_short_penalty = 0 if length >= MIN_LEN else (MIN_LEN - length)
-        target_penalty = abs(TARGET_LEN - length)
-        score = target_penalty + (2 * too_short_penalty)
-        scored.append((score, s))
-    scored.sort(key=lambda x: x)
-    return scored[11]
+        L = len(s)
+        penalty = abs(TARGET_LEN - L) + (2 * max(0, MIN_LEN - L))
+        scored.append((penalty, s))
+    scored.sort(key=lambda x: x[0])
+    return scored[0][1]
 
 def build_post(item, category):
     core = rewrite_title(item.get("title", ""))
     variants = craft_variations(core, category)
-    text = choose_best_text(variants)
-    return text
+    return choose_best_text(variants)
 
 # --------- OAuth 1.0a user-context signing for X API v2 ---------
 
@@ -305,13 +271,11 @@ def main():
     if not items:
         print("No items found; skipping.")
         return
-    # Prefer a random pick from top entries to stay fresh while varied
     pick_pool = items[:8] if len(items) >= 8 else items
     item = random.choice(pick_pool)
     post = build_post(item, category)
     print(f"Category: {category}")
     print("Posting:", post)
-    # Safety: ensure we never exceed 280 (emojis/spaces counted) [2][1]
     if len(post) > MAX_TWEET:
         post = post[:MAX_TWEET]
     post_tweet(post)
