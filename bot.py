@@ -198,11 +198,12 @@ def craft_variations(core: str, category: str):
 
     templates = [
         "{e} {p}. {i}. Takeaway: {t}.{m}{h}",
-        "{e} {p}. {i}. What’s the smart move here?{m}{h}",
+        "{e} {p}. {i}. What's the smart move here?{m}{h}",
         "{e} {p}. {i}. Bold claim—will it deliver?{m}{h}",
-        "{e} {p}. {i}. If only timelines moved as fast as headlines.{m}{h}",
         "{e} {p}. Tip: {t}.{m}{h}",
         "{e} {p}. {i}. Thoughts?{m}{h}",
+        "{e} {p}. {i}. What does this mean for the future?{m}{h}",
+        "{e} {p}. {i}. This could change everything.{m}{h}",
     ]
 
     out = []
