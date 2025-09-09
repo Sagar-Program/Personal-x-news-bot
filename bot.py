@@ -85,9 +85,9 @@ FEEDS = {
     ],
 }
 
-MAX_TWEET = 280
-TARGET_LEN = 220      # aim near 220 chars
-MIN_LEN = 160         # avoid too-short posts
+MAX_TWEET = 275  # Increased to 275 characters as requested
+TARGET_LEN = 270  # Aim for maximum length
+MIN_LEN = 200     # Minimum length to ensure informative content
 
 def sanitize(text) -> str:
     # Always return a string
@@ -166,7 +166,7 @@ def rewrite_title(title: str) -> str:
     t = sanitize(title)
     # Keep only the part before the first " - "
     if " - " in t:
-        t = t.split(" - ")[0].strip()  # FIX: operate on first segment (string), then strip
+        t = t.split(" - ")[0].strip()
     # Remove hype prefixes
     for k in ["BREAKING:", "BREAKING", "Watch:", "WATCH:", "Report:", "REPORT:", "Explained:", "EXPLAINED:", "Live:", "LIVE:"]:
         t = t.replace(k, "").strip()
@@ -190,25 +190,18 @@ def craft_variations(core: str, category: str):
     tcount = 3 if random.random() < 0.5 and len(tags) >= 3 else 2
     htxt = " " + " ".join(tags[:tcount])
 
-    # Split core into clauses for structure
-    clauses = [c.strip() for c in core.replace("—", "-").replace(":", ".").split(".") if c.strip()]
-    problem = clauses[0] if clauses else core
-    insight = clauses[1] if len(clauses) > 1 else "Key update worth tracking"
-    takeaway = clauses[2] if len(clauses) > 2 else "Keep an eye on this"
-
+    # Use the full core content for maximum information
     templates = [
-        "{e} {p}. {i}. Takeaway: {t}.{m}{h}",
-        "{e} {p}. {i}. What's the smart move here?{m}{h}",
-        "{e} {p}. {i}. Bold claim—will it deliver?{m}{h}",
-        "{e} {p}. Tip: {t}.{m}{h}",
-        "{e} {p}. {i}. Thoughts?{m}{h}",
-        "{e} {p}. {i}. What does this mean for the future?{m}{h}",
-        "{e} {p}. {i}. This could change everything.{m}{h}",
+        "{e} {p}{m}{h}",
+        "{e} {p}. Key developments ongoing{m}{h}",
+        "{e} {p}. Significant update in this space{m}{h}",
+        "{e} {p}. Major development worth noting{m}{h}",
+        "{e} {p}. Important update to follow{m}{h}",
     ]
 
     out = []
     for tpl in templates:
-        s = tpl.format(e=chosen_emoji, p=problem, i=insight, t=takeaway, m=mention and f" {mention.strip()}" or "", h=f" {htxt.strip()}")
+        s = tpl.format(e=chosen_emoji, p=core, m=mention and f" {mention.strip()}" or "", h=f" {htxt.strip()}")
         s = " ".join(s.split())
         out.append(s)
     return out
@@ -217,13 +210,14 @@ def choose_best_text(candidates):
     valid = [s for s in candidates if len(s) <= MAX_TWEET]
     if not valid:
         return candidates[0][:MAX_TWEET]
-    # Prefer near TARGET_LEN, penalize below MIN_LEN
+    # Prefer longer tweets that are more informative
     scored = []
     for s in valid:
         L = len(s)
-        penalty = abs(TARGET_LEN - L) + (2 * max(0, MIN_LEN - L))
-        scored.append((penalty, s))
-    scored.sort(key=lambda x: x[0])
+        # Prioritize longer tweets that are closer to MAX_TWEET
+        score = L - (0.1 * abs(MAX_TWEET - L))
+        scored.append((score, s))
+    scored.sort(key=lambda x: x[0], reverse=True)  # Sort descending to get longest first
     return scored[0][1]
 
 def build_post(item, category):
@@ -277,6 +271,7 @@ def main():
     post = build_post(item, category)
     print(f"Category: {category}")
     print("Posting:", post)
+    print(f"Length: {len(post)} characters")
     if len(post) > MAX_TWEET:
         post = post[:MAX_TWEET]
     post_tweet(post)
